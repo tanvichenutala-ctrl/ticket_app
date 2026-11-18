@@ -13,6 +13,9 @@ app.config["DATABASE_URL"] = os.getenv("DATABASE_URL", "tickets.db")
 from app.auth import auth_bp
 app.register_blueprint(auth_bp)
 
+from app.routes import tickets_bp
+app.register_blueprint(tickets_bp)
+
 
 @app.get("/health")
 def health():
