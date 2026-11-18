@@ -15,12 +15,12 @@ STATUS_FLOW = {
 }
 ROLES = ("employee", "support")
 
-DEFAULT_DB_PATH = os.getenv("DATABASE_URL", "tickets.db")
+DEFAULT_DB_PATH = os.getenv("DATABASE_URL") or os.getenv("DATABASE_PATH") or "tickets.db"
 
 
 def get_db(db_path: Optional[str] = None) -> sqlite3.Connection:
     """Establish and return a connection to the SQLite database."""
-    target_path = db_path or os.getenv("DATABASE_URL") or DEFAULT_DB_PATH
+    target_path = db_path or os.getenv("DATABASE_URL") or os.getenv("DATABASE_PATH") or DEFAULT_DB_PATH
     conn = sqlite3.connect(target_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")

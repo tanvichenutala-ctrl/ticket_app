@@ -145,6 +145,11 @@ The Employee Support Ticket App is a lightweight internal web application design
 - **When** they attempt to submit a blank or whitespace-only comment,
 - **Then** the submission is rejected with a validation error message and no comment record is created.
 
+### AC13: Employee Comment Isolation
+- **Given** a logged-in Employee,
+- **When** they attempt to submit a comment on a ticket created by another employee,
+- **Then** the server rejects the request with a 403 Forbidden error and no comment record is created.
+
 ---
 
 ## 6. Non-Functional Requirements
@@ -199,7 +204,7 @@ The Employee Support Ticket App is a lightweight internal web application design
   - Enforce status flow (`Open` → `In Progress` → `Resolved` → `Closed`) and auto-update `last_updated` timestamp.
   - Enforce server-side rejection if an employee attempts to trigger status modification.
 
-- [ ] **Task 6: Commenting System**
+- [x] **Task 6: Commenting System**
   - Implement `POST /tickets/<id>/comments` route for adding comments.
   - Ensure comments can be added by the owner employee or support staff, including on `Closed` tickets.
   - Validate non-empty comment content on the server.

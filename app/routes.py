@@ -19,6 +19,8 @@ from app.models import (
     get_ticket_by_id,
     update_ticket,
     update_ticket_status,
+    add_comment,
+    get_comments_by_ticket,
 )
 
 tickets_bp = Blueprint("tickets", __name__)
@@ -130,7 +132,7 @@ def create_new_ticket():
 @login_required
 def get_ticket_detail(ticket_id: int):
     """
-    View ticket details:
+    View ticket details and discussion history:
     - Support staff can view any ticket.
     - Employees can view only their own tickets (403 if unauthorized).
     """
@@ -149,10 +151,59 @@ def get_ticket_detail(ticket_id: int):
             return jsonify({"error": "Forbidden: access denied to this ticket"}), 403
         abort(403)
 
-    if request.is_json or request.headers.get("Accept") == "application/json":
-        return jsonify({"ticket": ticket}), 200
+    comment_rows = get_comments_by_ticket(ticket_id)
+    comments = [row_to_dict(c) for c in comment_rows]
 
-    return render_ticket_detail_page(ticket=ticket, role=current_role)
+    if request.is_json or request.headers.get("Accept") == "application/json":
+        return jsonify({"ticket": ticket, "comments": comments}), 200
+
+    return render_ticket_detail_page(ticket=ticket, comments=comments, role=current_role)
+
+
+@tickets_bp.route("/tickets/<int:ticket_id>/comments", methods=["POST"])
+@login_required
+def add_ticket_comment(ticket_id: int):
+    """
+    Add a comment to a ticket.
+    - Employees can comment only on their own tickets (403 if unauthorized).
+    - Support staff can comment on any ticket.
+    - Comments are allowed even when the ticket is Closed.
+    - Non-empty content is strictly required.
+    """
+    ticket = get_ticket_by_id(ticket_id)
+    if ticket is None:
+        if request.is_json or request.headers.get("Accept") == "application/json":
+            return jsonify({"error": "Ticket not found"}), 404
+        return "Ticket not found", 404
+
+    current_role = session.get("role")
+    current_user_id = session.get("user_id")
+
+    # Employees can only comment on their own tickets
+    if current_role == "employee" and ticket["created_by"] != current_user_id:
+        if request.is_json or request.headers.get("Accept") == "application/json":
+            return jsonify({"error": "Forbidden: you can only comment on your own tickets"}), 403
+        abort(403)
+
+    data = request.get_json(silent=True) or request.form
+    content = (data.get("content") or "").strip()
+
+    if not content:
+        if request.is_json or request.headers.get("Accept") == "application/json":
+            return jsonify({"error": "Comment content cannot be empty"}), 400
+        return "Comment content cannot be empty", 400
+
+    try:
+        comment_id = add_comment(ticket_id=ticket_id, author_id=current_user_id, content=content)
+    except Exception as e:
+        if request.is_json or request.headers.get("Accept") == "application/json":
+            return jsonify({"error": str(e)}), 400
+        return str(e), 400
+
+    if request.is_json or request.headers.get("Accept") == "application/json":
+        return jsonify({"message": "Comment added successfully", "comment_id": comment_id}), 201
+
+    return redirect(url_for("tickets.get_ticket_detail", ticket_id=ticket_id))
 
 
 @tickets_bp.route("/tickets/<int:ticket_id>/status", methods=["POST"])
@@ -366,7 +417,7 @@ def render_ticket_create_page(errors=None, form_data=None):
     )
 
 
-def render_ticket_detail_page(ticket, role):
+def render_ticket_detail_page(ticket, comments, role):
     next_statuses = STATUS_FLOW.get(ticket["status"], [])
     template = """
     <!doctype html>
@@ -396,9 +447,33 @@ def render_ticket_detail_page(ticket, role):
                 <button type="submit">Update Status</button>
             </form>
         {% elif ticket.status == 'Closed' %}
-            <p style="color: gray;"><em>This ticket is Closed and cannot be modified.</em></p>
+            <p style="color: gray;"><em>This ticket is Closed and cannot be edited or reopened.</em></p>
         {% endif %}
+
+        <hr>
+        <h3>Comments ({{ comments|length }})</h3>
+        {% if comments|length == 0 %}
+            <p>No comments yet.</p>
+        {% else %}
+            {% for c in comments %}
+                <div style="border: 1px solid #ddd; padding: 8px; margin-bottom: 8px; border-radius: 4px;">
+                    <p style="margin: 0 0 4px 0;"><strong>{{ c.author_username }}</strong> (<em>{{ c.author_role }}</em>) &bull; <small>{{ c.created_at }}</small></p>
+                    <p style="margin: 0;">{{ c.content }}</p>
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        <hr>
+        <h3>Add a Comment</h3>
+        <p><small>Comments are allowed on active and closed tickets.</small></p>
+        <form method="post" action="{{ url_for('tickets.add_ticket_comment', ticket_id=ticket.id) }}">
+            <div>
+                <textarea name="content" rows="3" cols="50" placeholder="Type your comment here..." required></textarea>
+            </div>
+            <br>
+            <button type="submit">Submit Comment</button>
+        </form>
     </body>
     </html>
     """
-    return render_template_string(template, ticket=ticket, role=role, next_statuses=next_statuses)
+    return render_template_string(template, ticket=ticket, comments=comments, role=role, next_statuses=next_statuses)

@@ -62,14 +62,14 @@ SAMPLE_TICKETS = [
 
 def seed_database(db_path: str = None) -> None:
     """Seed the database with 2 demo users and 5 sample tickets."""
-    employee_password = os.getenv("EMPLOYEE_PASSWORD")
-    support_password = os.getenv("SUPPORT_PASSWORD")
+    employee_password = os.getenv("EMPLOYEE_PASSWORD") or os.getenv("DEMO_EMPLOYEE_PASSWORD")
+    support_password = os.getenv("SUPPORT_PASSWORD") or os.getenv("DEMO_STAFF_PASSWORD") or os.getenv("DEMO_SUPPORT_PASSWORD")
 
     missing = []
     if not employee_password:
-        missing.append("EMPLOYEE_PASSWORD")
+        missing.append("EMPLOYEE_PASSWORD or DEMO_EMPLOYEE_PASSWORD")
     if not support_password:
-        missing.append("SUPPORT_PASSWORD")
+        missing.append("SUPPORT_PASSWORD or DEMO_STAFF_PASSWORD")
 
     if missing:
         raise ValueError(

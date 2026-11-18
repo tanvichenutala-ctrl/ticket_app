@@ -48,6 +48,9 @@ def test_seed_missing_password_env_var(tmp_path, monkeypatch):
     test_db = str(tmp_path / "test_seed_fail.db")
     monkeypatch.delenv("EMPLOYEE_PASSWORD", raising=False)
     monkeypatch.delenv("SUPPORT_PASSWORD", raising=False)
+    monkeypatch.delenv("DEMO_EMPLOYEE_PASSWORD", raising=False)
+    monkeypatch.delenv("DEMO_STAFF_PASSWORD", raising=False)
+    monkeypatch.delenv("DEMO_SUPPORT_PASSWORD", raising=False)
 
     with pytest.raises(ValueError, match="Missing required environment variable"):
         seed_database(db_path=test_db)
