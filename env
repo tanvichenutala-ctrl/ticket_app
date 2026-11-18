@@ -1,0 +1,7 @@
+# Local values for the Employee Support Ticket App (training lab).
+# This file is private. NEVER commit it or paste it into any AI tool.
+SECRET_KEY=49a631145e36efc13deaf8e2be25a6d9ffbb12627aae59f061e6c755031134b4
+DATABASE_PATH=tickets.db
+DEMO_EMPLOYEE_PASSWORD=Employee@2026
+DEMO_STAFF_PASSWORD=Staff@2026
+FLASK_DEBUG=1
