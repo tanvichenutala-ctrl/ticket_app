@@ -198,8 +198,8 @@ def test_update_ticket_status_by_support_staff(conn):
     update_ticket_status(ticket_id, "Closed", user_role="support", db=conn)
     assert get_ticket_by_id(ticket_id, db=conn)["status"] == "Closed"
 
-    # From Closed, no further transitions allowed
-    with pytest.raises(ValueError, match="Invalid status transition"):
+    # From Closed, no further transitions allowed (cannot be reopened)
+    with pytest.raises(ValueError, match="(Invalid status transition|Closed ticket cannot be)"):
         update_ticket_status(ticket_id, "Open", user_role="support", db=conn)
 
 

@@ -6,13 +6,19 @@ from flask import (
     request,
     session,
     url_for,
+    abort,
 )
 from app.auth import login_required, role_required
 from app.models import (
     CATEGORIES,
     PRIORITIES,
+    STATUSES,
+    STATUS_FLOW,
     create_ticket,
     get_tickets,
+    get_ticket_by_id,
+    update_ticket,
+    update_ticket_status,
 )
 
 tickets_bp = Blueprint("tickets", __name__)
@@ -120,8 +126,133 @@ def create_new_ticket():
     return render_ticket_create_page()
 
 
+@tickets_bp.route("/tickets/<int:ticket_id>", methods=["GET"])
+@login_required
+def get_ticket_detail(ticket_id: int):
+    """
+    View ticket details:
+    - Support staff can view any ticket.
+    - Employees can view only their own tickets (403 if unauthorized).
+    """
+    ticket_row = get_ticket_by_id(ticket_id)
+    if ticket_row is None:
+        if request.is_json or request.headers.get("Accept") == "application/json":
+            return jsonify({"error": "Ticket not found"}), 404
+        return "Ticket not found", 404
+
+    ticket = row_to_dict(ticket_row)
+    current_role = session.get("role")
+    current_user_id = session.get("user_id")
+
+    if current_role == "employee" and ticket["created_by"] != current_user_id:
+        if request.is_json or request.headers.get("Accept") == "application/json":
+            return jsonify({"error": "Forbidden: access denied to this ticket"}), 403
+        abort(403)
+
+    if request.is_json or request.headers.get("Accept") == "application/json":
+        return jsonify({"ticket": ticket}), 200
+
+    return render_ticket_detail_page(ticket=ticket, role=current_role)
+
+
+@tickets_bp.route("/tickets/<int:ticket_id>/status", methods=["POST"])
+@login_required
+def change_ticket_status(ticket_id: int):
+    """
+    Update ticket status.
+    Strictly enforced on the server for support staff only.
+    Closed tickets cannot be modified or reopened.
+    """
+    current_role = session.get("role")
+    if current_role != "support":
+        if request.is_json or request.headers.get("Accept") == "application/json":
+            return jsonify({"error": "Only support staff can change a ticket's status"}), 403
+        abort(403)
+
+    ticket = get_ticket_by_id(ticket_id)
+    if ticket is None:
+        if request.is_json or request.headers.get("Accept") == "application/json":
+            return jsonify({"error": "Ticket not found"}), 404
+        return "Ticket not found", 404
+
+    data = request.get_json(silent=True) or request.form
+    new_status = data.get("status") or data.get("new_status")
+
+    if not new_status:
+        if request.is_json or request.headers.get("Accept") == "application/json":
+            return jsonify({"error": "Status is required"}), 400
+        return "Status is required", 400
+
+    try:
+        update_ticket_status(ticket_id, new_status=new_status, user_role=current_role)
+    except PermissionError as e:
+        if request.is_json or request.headers.get("Accept") == "application/json":
+            return jsonify({"error": str(e)}), 403
+        abort(403)
+    except ValueError as e:
+        if request.is_json or request.headers.get("Accept") == "application/json":
+            return jsonify({"error": str(e)}), 400
+        return str(e), 400
+
+    if request.is_json or request.headers.get("Accept") == "application/json":
+        return jsonify({"message": "Status updated successfully", "status": new_status}), 200
+
+    return redirect(url_for("tickets.get_ticket_detail", ticket_id=ticket_id))
+
+
+@tickets_bp.route("/tickets/<int:ticket_id>/edit", methods=["POST"])
+@login_required
+def edit_ticket(ticket_id: int):
+    """
+    Allow an employee to edit their own non-closed ticket.
+    Closed tickets cannot be edited.
+    """
+    ticket = get_ticket_by_id(ticket_id)
+    if ticket is None:
+        if request.is_json or request.headers.get("Accept") == "application/json":
+            return jsonify({"error": "Ticket not found"}), 404
+        return "Ticket not found", 404
+
+    current_user_id = session.get("user_id")
+    current_role = session.get("role")
+
+    if current_role != "employee" or ticket["created_by"] != current_user_id:
+        if request.is_json or request.headers.get("Accept") == "application/json":
+            return jsonify({"error": "Forbidden: you can only edit your own tickets"}), 403
+        abort(403)
+
+    if ticket["status"] == "Closed":
+        if request.is_json or request.headers.get("Accept") == "application/json":
+            return jsonify({"error": "A Closed ticket cannot be edited"}), 400
+        return "A Closed ticket cannot be edited", 400
+
+    data = request.get_json(silent=True) or request.form
+    title = data.get("title")
+    description = data.get("description")
+    category = data.get("category")
+    priority = data.get("priority")
+
+    try:
+        update_ticket(
+            ticket_id,
+            title=title,
+            description=description,
+            category=category,
+            priority=priority,
+        )
+    except ValueError as e:
+        if request.is_json or request.headers.get("Accept") == "application/json":
+            return jsonify({"error": str(e)}), 400
+        return str(e), 400
+
+    if request.is_json or request.headers.get("Accept") == "application/json":
+        return jsonify({"message": "Ticket updated successfully"}), 200
+
+    return redirect(url_for("tickets.get_ticket_detail", ticket_id=ticket_id))
+
+
 # ---------------------------------------------------------------------------
-# Inline HTML Rendering Helpers (until full Jinja templates are integrated)
+# Inline HTML Rendering Helpers
 # ---------------------------------------------------------------------------
 
 def render_ticket_list_page(tickets, role, username):
@@ -151,6 +282,7 @@ def render_ticket_list_page(tickets, role, username):
                             <th>Status</th>
                             <th>Created By</th>
                             <th>Created Date</th>
+                            <th>Action</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -160,9 +292,10 @@ def render_ticket_list_page(tickets, role, username):
                             <td>{{ ticket.title }}</td>
                             <td>{{ ticket.category }}</td>
                             <td>{{ ticket.priority }}</td>
-                            <td>{{ ticket.status }}</td>
+                            <td><strong>{{ ticket.status }}</strong></td>
                             <td>{{ ticket.author_username }}</td>
                             <td>{{ ticket.created_at }}</td>
+                            <td><a href="{{ url_for('tickets.get_ticket_detail', ticket_id=ticket.id) }}">View Details</a></td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -231,3 +364,41 @@ def render_ticket_create_page(errors=None, form_data=None):
         categories=CATEGORIES,
         priorities=PRIORITIES
     )
+
+
+def render_ticket_detail_page(ticket, role):
+    next_statuses = STATUS_FLOW.get(ticket["status"], [])
+    template = """
+    <!doctype html>
+    <html lang="en">
+    <head><meta charset="utf-8"><title>Ticket #{{ ticket.id }}</title></head>
+    <body>
+        <p><a href="{{ url_for('tickets.list_tickets') }}">← Back to Tickets</a></p>
+        <h2>Ticket #{{ ticket.id }}: {{ ticket.title }}</h2>
+        <p><strong>Status:</strong> {{ ticket.status }}</p>
+        <p><strong>Category:</strong> {{ ticket.category }} | <strong>Priority:</strong> {{ ticket.priority }}</p>
+        <p><strong>Created By:</strong> {{ ticket.author_username }} on {{ ticket.created_at }}</p>
+        <p><strong>Last Updated:</strong> {{ ticket.updated_at }}</p>
+        <hr>
+        <h3>Description</h3>
+        <p>{{ ticket.description }}</p>
+
+        {% if role == 'support' and ticket.status != 'Closed' %}
+            <hr>
+            <h3>Update Status</h3>
+            <form method="post" action="{{ url_for('tickets.change_ticket_status', ticket_id=ticket.id) }}">
+                <label for="status">Next Status:</label>
+                <select id="status" name="status" required>
+                    {% for st in next_statuses %}
+                        <option value="{{ st }}">{{ st }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit">Update Status</button>
+            </form>
+        {% elif ticket.status == 'Closed' %}
+            <p style="color: gray;"><em>This ticket is Closed and cannot be modified.</em></p>
+        {% endif %}
+    </body>
+    </html>
+    """
+    return render_template_string(template, ticket=ticket, role=role, next_statuses=next_statuses)

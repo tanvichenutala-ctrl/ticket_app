@@ -319,6 +319,9 @@ def update_ticket_status(
             raise ValueError(f"Ticket with ID {ticket_id} not found")
 
         current_status = current["status"]
+        if current_status == "Closed":
+            raise ValueError("A Closed ticket cannot be edited or reopened")
+
         if new_status != current_status:
             allowed = STATUS_FLOW.get(current_status, [])
             if new_status not in allowed:
